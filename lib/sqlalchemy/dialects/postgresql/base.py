@@ -2916,6 +2916,17 @@ class PGDDLCompiler(compiler.DDLCompiler):
 
 
 class PGTypeCompiler(compiler.GenericTypeCompiler):
+    def _render_string_type(self, name, length, collation):
+        text = name
+        if length:
+            text += f"({length})"
+        if collation:
+            collation_str = self.dialect.identifier_preparer.format_collation(
+                collation
+            )
+            text += f" COLLATE {collation_str}"
+        return text
+
     def visit_TSVECTOR(self, type_, **kw):
         return "TSVECTOR"
 
@@ -3107,6 +3118,20 @@ class PGTypeCompiler(compiler.GenericTypeCompiler):
 
 class PGIdentifierPreparer(compiler.IdentifierPreparer):
     reserved_words = RESERVED_WORDS
+
+    def format_collation(self, collation_name):
+        """Format a collation name for PostgreSQL.
+
+        For schema-qualified collations (e.g., 'my_schema.my_collation'),
+        the name is rendered without full quoting so that PostgreSQL
+        interprets it as schema.collation rather than a single identifier.
+        Simple collations are quoted normally.
+        """
+        if "." in collation_name:
+            # Schema-qualified collation: render without full quoting
+            return collation_name
+        else:
+            return super().format_collation(collation_name)
 
     def _unquote_identifier(self, value):
         if value[0] == self.initial_quote:
