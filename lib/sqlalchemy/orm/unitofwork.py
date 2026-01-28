@@ -40,6 +40,55 @@ if TYPE_CHECKING:
     from .state import InstanceState
 
 
+def _expunge_pending_orphan_cascade(sess, parent_state):
+    """When an orphan is detected, cascade expunge to any pending
+    descendants through relationships with delete-orphan cascade.
+
+    This handles nested delete-orphan cascades where expunging a pending
+    orphan (or marking a persistent orphan for deletion) should also
+    expunge pending grandchildren that would otherwise be left in the
+    session without a valid parent.
+    """
+    pending_to_expunge = []
+    visited = set()
+    _collect_pending_orphan_descendants(
+        sess, parent_state, pending_to_expunge, visited
+    )
+    if pending_to_expunge:
+        sess._expunge_states(pending_to_expunge)
+
+
+def _collect_pending_orphan_descendants(sess, parent_state, result, visited):
+    """Recursively collect pending descendants through delete-orphan
+    cascade relationships."""
+    if parent_state in visited:
+        return
+    visited.add(parent_state)
+
+    parent_mapper = parent_state.manager.mapper
+    parent_dict = parent_state.dict
+
+    for prop in parent_mapper._props.values():
+        if not prop.cascade or not prop.cascade.delete_orphan:
+            continue
+
+        tuples = prop._value_as_iterable(
+            parent_state,
+            parent_dict,
+            prop.key,
+            passive=attributes.PASSIVE_NO_INITIALIZE,
+        )
+
+        for child_state, child in tuples:
+            if child is None or child_state is None:
+                continue
+            if child_state in sess._new:
+                result.append(child_state)
+            _collect_pending_orphan_descendants(
+                sess, child_state, result, visited
+            )
+
+
 def _track_cascade_events(descriptor, prop):
     """Establish event listeners on object attributes which handle
     cascade-on-set/append.
@@ -104,6 +153,9 @@ def _track_cascade_events(descriptor, prop):
                     # item
                     item_state._orphaned_outside_of_session = True
 
+                if sess:
+                    _expunge_pending_orphan_cascade(sess, item_state)
+
     def set_(state, newvalue, oldvalue, initiator, **kw):
         # process "save_update" cascade rules for when an instance
         # is attached to another instance
@@ -138,6 +190,9 @@ def _track_cascade_events(descriptor, prop):
                     oldvalue_state
                 ):
                     sess.expunge(oldvalue)
+                    _expunge_pending_orphan_cascade(
+                        sess, oldvalue_state
+                    )
         return newvalue
 
     event.listen(

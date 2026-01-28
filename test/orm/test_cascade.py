@@ -3238,6 +3238,599 @@ class PendingOrphanTestTwoLevel(fixtures.MappedTest):
         assert a1 not in o1.items
 
 
+class PendingOrphanTestNestedCascadeOnPersistentParent(fixtures.MappedTest):
+    """delete-orphan cascade expels nested pending children when
+    the intermediate child is removed from a persistent parent's
+    collection."""
+
+    @classmethod
+    def define_tables(cls, metadata):
+        Table(
+            "section",
+            metadata,
+            Column(
+                "id", Integer, primary_key=True, test_needs_autoincrement=True
+            ),
+        )
+        Table(
+            "item",
+            metadata,
+            Column(
+                "id", Integer, primary_key=True, test_needs_autoincrement=True
+            ),
+            Column(
+                "section_id",
+                Integer,
+                ForeignKey("section.id"),
+                nullable=False,
+            ),
+        )
+        Table(
+            "part",
+            metadata,
+            Column(
+                "id", Integer, primary_key=True, test_needs_autoincrement=True
+            ),
+            Column(
+                "item_id",
+                Integer,
+                ForeignKey("item.id"),
+                nullable=False,
+            ),
+        )
+        Table(
+            "subpart",
+            metadata,
+            Column(
+                "id", Integer, primary_key=True, test_needs_autoincrement=True
+            ),
+            Column(
+                "part_id",
+                Integer,
+                ForeignKey("part.id"),
+                nullable=False,
+            ),
+        )
+
+    @classmethod
+    def setup_classes(cls):
+        class Section(cls.Comparable):
+            pass
+
+        class Item(cls.Comparable):
+            pass
+
+        class Part(cls.Comparable):
+            pass
+
+        class SubPart(cls.Comparable):
+            pass
+
+    def _map_two_level(self, cascade="save-update, merge, delete, delete-orphan"):
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+        section, item, part = (
+            self.tables.section,
+            self.tables.item,
+            self.tables.part,
+        )
+        self.mapper_registry.map_imperatively(
+            Section,
+            section,
+            properties={
+                "items": relationship(
+                    Item, cascade=cascade
+                )
+            },
+        )
+        self.mapper_registry.map_imperatively(
+            Item,
+            item,
+            properties={
+                "parts": relationship(
+                    Part, cascade=cascade
+                )
+            },
+        )
+        self.mapper_registry.map_imperatively(Part, part)
+
+    def _map_three_level(
+        self, cascade="save-update, merge, delete, delete-orphan"
+    ):
+        Section, Item, Part, SubPart = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+            self.classes.SubPart,
+        )
+        section, item, part, subpart = (
+            self.tables.section,
+            self.tables.item,
+            self.tables.part,
+            self.tables.subpart,
+        )
+        self.mapper_registry.map_imperatively(
+            Section,
+            section,
+            properties={
+                "items": relationship(
+                    Item, cascade=cascade
+                )
+            },
+        )
+        self.mapper_registry.map_imperatively(
+            Item,
+            item,
+            properties={
+                "parts": relationship(
+                    Part, cascade=cascade
+                )
+            },
+        )
+        self.mapper_registry.map_imperatively(
+            Part,
+            part,
+            properties={
+                "subparts": relationship(
+                    SubPart, cascade=cascade
+                )
+            },
+        )
+        self.mapper_registry.map_imperatively(SubPart, subpart)
+
+    def test_remove_nested_pending_from_persistent_parent(self):
+        """Removing a pending child with a nested pending grandchild
+        from a persistent parent expels both from the session."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        i1 = Item(parts=[p1])
+        sec.items.append(i1)
+
+        assert i1 in s
+        assert p1 in s
+
+        sec.items.remove(i1)
+
+        assert i1 not in s
+        assert p1 not in s
+
+    def test_remove_nested_pending_from_persistent_parent_all_cascade(self):
+        """Same as above but with 'all, delete-orphan' cascade which
+        includes expunge, confirming consistent behavior."""
+
+        self._map_two_level(cascade="all, delete-orphan")
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        i1 = Item(parts=[p1])
+        sec.items.append(i1)
+
+        assert i1 in s
+        assert p1 in s
+
+        sec.items.remove(i1)
+
+        assert i1 not in s
+        assert p1 not in s
+
+    def test_flush_after_remove_nested_from_persistent_parent(self):
+        """Flush after removing a pending child with nested grandchild
+        from a persistent parent does not insert the grandchild."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        i1 = Item(parts=[p1])
+        sec.items.append(i1)
+        sec.items.remove(i1)
+
+        s.flush()
+
+        eq_(
+            s.execute(
+                select(func.count("*")).select_from(self.tables.item)
+            ).scalar(),
+            0,
+        )
+        eq_(
+            s.execute(
+                select(func.count("*")).select_from(self.tables.part)
+            ).scalar(),
+            0,
+        )
+
+    def test_commit_after_remove_nested_from_persistent_parent(self):
+        """Commit after removing a pending child with nested grandchild
+        from a persistent parent does not persist the grandchild."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        i1 = Item(parts=[p1])
+        sec.items.append(i1)
+        sec.items.remove(i1)
+
+        s.commit()
+
+        eq_(
+            s.execute(
+                select(func.count("*")).select_from(self.tables.item)
+            ).scalar(),
+            0,
+        )
+        eq_(
+            s.execute(
+                select(func.count("*")).select_from(self.tables.part)
+            ).scalar(),
+            0,
+        )
+
+    def test_remove_nested_multiple_grandchildren(self):
+        """Removing a pending child with multiple nested pending
+        grandchildren from a persistent parent expels all."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        p2 = Part()
+        p3 = Part()
+        i1 = Item(parts=[p1, p2, p3])
+        sec.items.append(i1)
+
+        assert p1 in s
+        assert p2 in s
+        assert p3 in s
+
+        sec.items.remove(i1)
+
+        assert i1 not in s
+        assert p1 not in s
+        assert p2 not in s
+        assert p3 not in s
+
+    def test_remove_nested_parts_appended_separately(self):
+        """Grandchildren appended via collection.append() are also
+        expunged when the child is removed from a persistent parent."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        i1 = Item()
+        p1 = Part()
+        i1.parts.append(p1)
+        sec.items.append(i1)
+
+        assert i1 in s
+        assert p1 in s
+
+        sec.items.remove(i1)
+
+        assert i1 not in s
+        assert p1 not in s
+
+    def test_three_level_nested_orphan_cascade(self):
+        """Orphan cascade propagates through three levels when the
+        top-level child is removed from a persistent parent."""
+
+        self._map_three_level()
+        Section, Item, Part, SubPart = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+            self.classes.SubPart,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        sp1 = SubPart()
+        p1 = Part(subparts=[sp1])
+        i1 = Item(parts=[p1])
+        sec.items.append(i1)
+
+        assert i1 in s
+        assert p1 in s
+        assert sp1 in s
+
+        sec.items.remove(i1)
+
+        assert i1 not in s
+        assert p1 not in s
+        assert sp1 not in s
+
+    def test_collection_replacement_expels_nested(self):
+        """Replacing a persistent parent's collection with an empty
+        list expels nested children of removed items."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        i1 = Item(parts=[p1])
+        sec.items.append(i1)
+
+        assert i1 in s
+        assert p1 in s
+
+        sec.items = []
+
+        assert i1 not in s
+        assert p1 not in s
+
+    def test_collection_replacement_with_new_items_expels_old_nested(self):
+        """Replacing collection with new items expels nested children
+        of old items while keeping new ones in session."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p_old = Part()
+        i_old = Item(parts=[p_old])
+        sec.items.append(i_old)
+
+        p_new = Part()
+        i_new = Item(parts=[p_new])
+        sec.items = [i_new]
+
+        assert i_old not in s
+        assert p_old not in s
+        assert i_new in s
+        assert p_new in s
+
+    def test_remove_multiple_children_with_nested(self):
+        """Removing multiple children each with nested grandchildren
+        from a persistent parent expels all from the session."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        i1 = Item(parts=[p1])
+        p2 = Part()
+        i2 = Item(parts=[p2])
+        sec.items.append(i1)
+        sec.items.append(i2)
+
+        sec.items.remove(i1)
+        sec.items.remove(i2)
+
+        assert i1 not in s
+        assert p1 not in s
+        assert i2 not in s
+        assert p2 not in s
+
+    def test_nested_pending_from_pending_parent_expunged(self):
+        """Removing a pending child with nested grandchild from a
+        pending parent also expels both from the session."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+
+        p1 = Part()
+        i1 = Item(parts=[p1])
+        sec.items.append(i1)
+
+        assert i1 in s
+        assert p1 in s
+
+        sec.items.remove(i1)
+
+        assert i1 not in s
+        assert p1 not in s
+
+    def test_flush_after_remove_and_readd_different_child(self):
+        """After removing an item with nested children and adding a
+        new item, flush persists only the new hierarchy."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        i1 = Item(parts=[p1])
+        sec.items.append(i1)
+        sec.items.remove(i1)
+
+        p2 = Part()
+        i2 = Item(parts=[p2])
+        sec.items.append(i2)
+
+        s.flush()
+
+        eq_(
+            s.execute(
+                select(func.count("*")).select_from(self.tables.item)
+            ).scalar(),
+            1,
+        )
+        eq_(
+            s.execute(
+                select(func.count("*")).select_from(self.tables.part)
+            ).scalar(),
+            1,
+        )
+
+    def test_grandchild_added_after_parent_appended(self):
+        """Grandchild added to child after child was appended to
+        persistent parent is also expunged on child removal."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        s.add(sec)
+        s.flush()
+
+        i1 = Item()
+        sec.items.append(i1)
+
+        p1 = Part()
+        i1.parts.append(p1)
+
+        assert i1 in s
+        assert p1 in s
+
+        sec.items.remove(i1)
+
+        assert i1 not in s
+        assert p1 not in s
+
+    def test_persistent_child_delete_cascades_to_pending_grandchild(self):
+        """When a persistent child is removed from the collection,
+        delete-orphan marks it for deletion which cascades to
+        pending grandchildren."""
+
+        self._map_two_level()
+        Section, Item, Part = (
+            self.classes.Section,
+            self.classes.Item,
+            self.classes.Part,
+        )
+
+        s = fixture_session()
+        sec = Section()
+        i1 = Item()
+        sec.items.append(i1)
+        s.add(sec)
+        s.flush()
+
+        p1 = Part()
+        i1.parts.append(p1)
+        assert p1 in s
+
+        sec.items.remove(i1)
+
+        assert p1 not in s
+
+        s.flush()
+
+        eq_(
+            s.execute(
+                select(func.count("*")).select_from(self.tables.item)
+            ).scalar(),
+            0,
+        )
+        eq_(
+            s.execute(
+                select(func.count("*")).select_from(self.tables.part)
+            ).scalar(),
+            0,
+        )
+
+
 class DoubleParentO2MOrphanTest(fixtures.MappedTest):
     """Test orphan behavior on an entity that requires
     two parents via many-to-one (one-to-many collection.).
