@@ -85,10 +85,10 @@ class SchemaQualifiedCollationTest(AssertsCompiledSQL, fixtures.TestBase):
         )
 
     def test_pg_catalog_collation(self):
-        """pg_catalog.default collation renders without full quoting."""
+        """pg_catalog.default collation quotes reserved word 'default'."""
         self.assert_compile(
             Text(collation="pg_catalog.default"),
-            "TEXT COLLATE pg_catalog.default",
+            'TEXT COLLATE pg_catalog."default"',
         )
 
     def test_public_schema_collation(self):
@@ -159,8 +159,15 @@ class SchemaQualifiedCollationTest(AssertsCompiledSQL, fixtures.TestBase):
         )
 
     def test_schema_qualified_three_parts_treated_as_single(self):
-        """Collation with multiple dots is treated as schema-qualified."""
+        """Collation with multiple dots splits on the first dot only."""
         self.assert_compile(
             Text(collation="a.b.c"),
-            "TEXT COLLATE a.b.c",
+            'TEXT COLLATE a."b.c"',
+        )
+
+    def test_schema_qualified_collation_injection_is_escaped(self):
+        """Schema-qualified collation with injection attempt is quoted."""
+        self.assert_compile(
+            Text(collation='public.utf8"; DROP TABLE users; --'),
+            'TEXT COLLATE public."utf8""; DROP TABLE users; --"',
         )

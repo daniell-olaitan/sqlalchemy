@@ -3123,13 +3123,13 @@ class PGIdentifierPreparer(compiler.IdentifierPreparer):
         """Format a collation name for PostgreSQL.
 
         For schema-qualified collations (e.g., 'my_schema.my_collation'),
-        the name is rendered without full quoting so that PostgreSQL
-        interprets it as schema.collation rather than a single identifier.
+        each part is quoted individually so that PostgreSQL interprets it
+        as schema.collation rather than a single identifier.
         Simple collations are quoted normally.
         """
         if "." in collation_name:
-            # Schema-qualified collation: render without full quoting
-            return collation_name
+            schema, name = collation_name.split(".", 1)
+            return self.quote_schema(schema) + "." + self.quote(name)
         else:
             return super().format_collation(collation_name)
 
