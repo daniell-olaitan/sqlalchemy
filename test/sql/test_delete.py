@@ -383,6 +383,83 @@ class DeleteFromRoundTripTest(fixtures.TablesTest):
         stmt = table.select().order_by(table.c.id)
         eq_(connection.execute(stmt).fetchall(), expected)
 
+    @testing.requires.delete_using
+    @testing.requires.delete_returning
+    @testing.only_on("postgresql")
+    def test_exec_two_table_returning_from_using(self, connection):
+        """DELETE USING with RETURNING columns from USING clause."""
+        users, addresses = self.tables.users, self.tables.addresses
+        dingalings = self.tables.dingalings
+
+        connection.execute(dingalings.delete())
+
+        stmt = (
+            users.delete()
+            .where(users.c.id == addresses.c.user_id)
+            .where(users.c.name == "ed")
+            .returning(users.c.name, addresses.c.email_address)
+        )
+
+        result = connection.execute(stmt)
+        rows = set(result.fetchall())
+        eq_(
+            rows,
+            {
+                ("ed", "ed@wood.com"),
+                ("ed", "ed@bettyboop.com"),
+                ("ed", "ed@lala.com"),
+            },
+        )
+
+    @testing.requires.delete_using
+    @testing.requires.delete_returning
+    @testing.only_on("postgresql")
+    def test_exec_two_table_returning_only_from_using(self, connection):
+        """DELETE USING with RETURNING only columns from USING clause."""
+        users, addresses = self.tables.users, self.tables.addresses
+        dingalings = self.tables.dingalings
+
+        connection.execute(dingalings.delete())
+
+        stmt = (
+            users.delete()
+            .where(users.c.id == addresses.c.user_id)
+            .where(users.c.name == "ed")
+            .returning(addresses.c.email_address)
+        )
+
+        result = connection.execute(stmt)
+        rows = set(result.fetchall())
+        eq_(
+            rows,
+            {
+                ("ed@wood.com",),
+                ("ed@bettyboop.com",),
+                ("ed@lala.com",),
+            },
+        )
+
+    @testing.requires.delete_using
+    @testing.requires.delete_returning
+    @testing.only_on("postgresql")
+    def test_exec_three_table_returning_from_using(self, connection):
+        """DELETE USING with RETURNING from multiple USING tables."""
+        users = self.tables.users
+        addresses = self.tables.addresses
+        dingalings = self.tables.dingalings
+
+        stmt = (
+            dingalings.delete()
+            .where(users.c.id == addresses.c.user_id)
+            .where(users.c.name == "ed")
+            .where(addresses.c.id == dingalings.c.address_id)
+            .returning(dingalings.c.data, addresses.c.email_address, users.c.name)
+        )
+
+        result = connection.execute(stmt)
+        rows = result.fetchall()
+        eq_(rows, [("ding 1/2", "ed@wood.com", "ed")])
+
 
 class DeleteFilterByTest(_FilterByDMLSuite):
     @testing.fixture

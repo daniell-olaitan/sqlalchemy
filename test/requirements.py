@@ -579,6 +579,16 @@ class DefaultRequirements(SuiteRequirements):
         )
 
     @property
+    def delete_using_returning(self):
+        """Target must support DELETE..USING syntax where RETURNING can
+        return columns from the non-primary USING clause"""
+
+        return self.delete_returning + self.delete_using + skip_if(
+            ["mysql", "mariadb", "mssql"],
+            "Backend does not support RETURNING from USING clause",
+        )
+
+    @property
     def update_where_target_in_subquery(self):
         """Target must support UPDATE (or DELETE) where the same table is
         present in a subquery in the WHERE clause.

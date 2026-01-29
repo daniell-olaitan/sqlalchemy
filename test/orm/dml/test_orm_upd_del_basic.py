@@ -1332,12 +1332,10 @@ class UpdateDeleteTest(fixtures.MappedTest):
         )
 
     @testing.requires.update_from_returning
-    # can't use evaluate because it can't match the col->col in the WHERE
     @testing.combinations("fetch", "auto", argnames="synchronize_session")
     def test_update_from_multi_returning(
         self, synchronize_session, addresses_data
     ):
-        """test #12327"""
         User = self.classes.User
         Address = self.classes.Address
 
@@ -1360,8 +1358,6 @@ class UpdateDeleteTest(fixtures.MappedTest):
             rows = sess.execute(stmt).all()
             eq_(set(rows), {(2, "ja1", 4), (4, "jan1", 4)})
 
-            # these are simple values, these are now evaluated even with
-            # the "fetch" strategy, new in 1.4, so there is no expiry
             eq_([john.age, jack.age, jill.age, jane.age], [25, 37, 29, 27])
 
         asserter.assert_(
@@ -1377,6 +1373,107 @@ class UpdateDeleteTest(fixtures.MappedTest):
                 dialect="postgresql",
             ),
         )
+
+    @testing.requires.delete_using_returning
+    @testing.combinations(
+        "fetch",
+        "auto",
+        False,
+        argnames="synchronize_session",
+    )
+    def test_delete_using_multi_returning(
+        self, synchronize_session, addresses_data
+    ):
+        """DELETE with RETURNING columns from USING clause tables."""
+        User = self.classes.User
+        Address = self.classes.Address
+
+        sess = fixture_session()
+
+        john, jack, jill, jane = sess.query(User).order_by(User.id).all()
+
+        with self.sql_execution_asserter() as asserter:
+            stmt = (
+                delete(User)
+                .where(User.id == Address.user_id)
+                .filter(User.age > 29)
+                .returning(
+                    User.id, Address.email_address, func.char_length(User.name)
+                )
+                .execution_options(synchronize_session=synchronize_session)
+            )
+
+            rows = sess.execute(stmt).all()
+            eq_(set(rows), {(2, "ja1", 4), (4, "jan1", 4)})
+
+        asserter.assert_(
+            CompiledSQL(
+                "DELETE FROM users USING addresses "
+                "WHERE users.id = addresses.user_id AND "
+                "users.age_int > %(age_int_1)s::INTEGER "
+                "RETURNING users.id, addresses.email_address, "
+                "char_length(users.name) AS char_length_1",
+                [{"age_int_1": 29}],
+                dialect="postgresql",
+            ),
+        )
+
+        if synchronize_session is not False:
+            in_(john, sess)
+            not_in(jack, sess)
+            in_(jill, sess)
+            not_in(jane, sess)
+
+    @testing.requires.delete_using_returning
+    def test_delete_using_returning_only_from_using_clause(
+        self, addresses_data
+    ):
+        """DELETE with RETURNING only columns from USING clause tables."""
+        User = self.classes.User
+        Address = self.classes.Address
+
+        sess = fixture_session()
+
+        with self.sql_execution_asserter() as asserter:
+            stmt = (
+                delete(User)
+                .where(User.id == Address.user_id)
+                .filter(User.age > 29)
+                .returning(Address.email_address)
+                .execution_options(synchronize_session=False)
+            )
+
+            rows = sess.execute(stmt).all()
+            eq_(set(rows), {("ja1",), ("jan1",)})
+
+        asserter.assert_(
+            CompiledSQL(
+                "DELETE FROM users USING addresses "
+                "WHERE users.id = addresses.user_id AND "
+                "users.age_int > %(age_int_1)s::INTEGER "
+                "RETURNING addresses.email_address",
+                [{"age_int_1": 29}],
+                dialect="postgresql",
+            ),
+        )
+
+    @testing.requires.delete_using_returning
+    def test_delete_using_core_returning_from_using(self, addresses_data):
+        """DELETE USING with RETURNING from USING clause via Core execution."""
+        users = self.tables.users
+        addresses = self.tables.addresses
+
+        stmt = (
+            delete(users)
+            .where(users.c.id == addresses.c.user_id)
+            .where(users.c.age_int > 29)
+            .returning(addresses.c.email_address, users.c.name)
+        )
+
+        with testing.db.connect() as conn:
+            result = conn.execute(stmt)
+            rows = result.all()
+            eq_(set(rows), {("ja1", "jack"), ("jan1", "jane")})
 
     @testing.requires.update_returning
     @testing.combinations("update", "delete", argnames="crud_type")
