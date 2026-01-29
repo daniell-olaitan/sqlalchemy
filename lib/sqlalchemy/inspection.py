@@ -157,7 +157,23 @@ def _inspects(
     def decorate(fn_or_cls: _F) -> _F:
         for type_ in types:
             if type_ in _registrars:
-                raise AssertionError("Type %s is already registered" % type_)
+                existing = _registrars[type_]
+                if existing is fn_or_cls:
+                    continue
+                if (
+                    existing is not True
+                    and callable(existing)
+                    and callable(fn_or_cls)
+                    and getattr(existing, "__name__", None)
+                    == getattr(fn_or_cls, "__name__", _missing)
+                    and getattr(existing, "__module__", None)
+                    == getattr(fn_or_cls, "__module__", _missing)
+                ):
+                    _registrars[type_] = fn_or_cls
+                    continue
+                raise AssertionError(
+                    "Type %s is already registered" % type_
+                )
             _registrars[type_] = fn_or_cls
         return fn_or_cls
 
@@ -165,10 +181,13 @@ def _inspects(
 
 
 _TT = TypeVar("_TT", bound="Type[Any]")
+_missing = object()
 
 
 def _self_inspects(cls: _TT) -> _TT:
     if cls in _registrars:
-        raise AssertionError("Type %s is already registered" % cls)
+        existing = _registrars[cls]
+        if existing is not True:
+            raise AssertionError("Type %s is already registered" % cls)
     _registrars[cls] = True
     return cls
