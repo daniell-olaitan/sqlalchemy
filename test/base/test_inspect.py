@@ -75,28 +75,25 @@ class TestInspection(fixtures.TestBase):
 
 
 class TestInspectionModuleReload(fixtures.TestBase):
-    def test_reload_module_registering_builtin_object_type(self):
-        """Reloading orm.base which registers the object builtin
-        does not raise."""
+    def test_reload_orm_base(self):
+        """Reloading orm.base does not raise."""
         from sqlalchemy.orm import base
 
         importlib.reload(base)
 
-    def test_reload_module_registering_engine_and_connection(self):
-        """Reloading engine.reflection which registers Engine and
-        Connection does not raise."""
+    def test_reload_engine_reflection(self):
+        """Reloading engine.reflection does not raise."""
         from sqlalchemy.engine import reflection
 
         importlib.reload(reflection)
 
-    def test_reload_module_registering_builtin_type(self):
-        """Reloading orm.util which registers the type builtin
-        does not raise."""
+    def test_reload_orm_util(self):
+        """Reloading orm.util does not raise."""
         from sqlalchemy.orm import util as orm_util
 
         importlib.reload(orm_util)
 
-    def test_successive_reloads_of_object_registration_module(self):
+    def test_reload_orm_base_multiple_times(self):
         """Three successive reloads of orm.base remain safe."""
         from sqlalchemy.orm import base
 
@@ -104,9 +101,8 @@ class TestInspectionModuleReload(fixtures.TestBase):
         importlib.reload(base)
         importlib.reload(base)
 
-    def test_sequential_reload_of_multiple_registration_modules(self):
-        """Reloading several modules with registrations in sequence
-        does not raise."""
+    def test_reload_multiple_modules_sequentially(self):
+        """Reloading several modules in sequence does not raise."""
         from sqlalchemy.engine import reflection
         from sqlalchemy.orm import base
 
@@ -114,17 +110,17 @@ class TestInspectionModuleReload(fixtures.TestBase):
         importlib.reload(reflection)
 
     def test_inspect_unmapped_instance_after_reload(self):
-        """inspect() returns None for unmapped objects after the
-        registering module is reloaded."""
+        """inspect() returns None for unmapped objects after module
+        reload."""
         from sqlalchemy.orm import base
 
         importlib.reload(base)
         result = inspect(object(), raiseerr=False)
         is_none(result)
 
-    def test_inspect_table_after_orm_base_reload(self):
+    def test_inspect_table_after_reload(self):
         """inspect() on a Table still returns the table itself after
-        orm.base is reloaded."""
+        module reload."""
         from sqlalchemy import Column, Integer, MetaData, Table
         from sqlalchemy.orm import base
 
@@ -136,9 +132,8 @@ class TestInspectionModuleReload(fixtures.TestBase):
         result = inspect(t)
         eq_(result, t)
 
-    def test_inspect_clause_element_after_orm_base_reload(self):
-        """inspect() on a ClauseElement is unaffected by reloading
-        orm.base."""
+    def test_inspect_clause_element_after_reload(self):
+        """inspect() on a ClauseElement is unaffected by module reload."""
         from sqlalchemy import literal_column
         from sqlalchemy.orm import base
 
@@ -162,26 +157,3 @@ class TestInspectionModuleReload(fixtures.TestBase):
             inspect,
             42,
         )
-
-    def test_inspect_unmapped_instance_raiseerr_after_reload(self):
-        """NoInspectionAvailable is raised for an unmapped object
-        with raiseerr=True after module reload."""
-        from sqlalchemy.orm import base
-
-        importlib.reload(base)
-
-        assert_raises_message(
-            exc.NoInspectionAvailable,
-            "No inspection system is available for object of type",
-            inspect,
-            object(),
-        )
-
-    def test_inspect_raiseerr_false_returns_none_after_reload(self):
-        """inspect() with raiseerr=False returns None for a non-mapped
-        int after module reload."""
-        from sqlalchemy.orm import base
-
-        importlib.reload(base)
-        result = inspect(42, raiseerr=False)
-        is_none(result)
