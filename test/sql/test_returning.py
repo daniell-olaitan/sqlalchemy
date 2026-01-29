@@ -316,6 +316,135 @@ class ReturnCombinationTests(fixtures.TestBase, AssertsCompiledSQL):
         )
 
 
+class MultiTableReturningTest(fixtures.TestBase, AssertsCompiledSQL):
+    """Tests for RETURNING with columns from non-primary tables in
+    multi-table UPDATE/DELETE statements."""
+
+    __dialect__ = "postgresql"
+
+    @testing.fixture
+    def two_table_fixture(self):
+        m = MetaData()
+        authors = Table(
+            "authors",
+            m,
+            Column("id", Integer, primary_key=True),
+            Column("name", String(50)),
+        )
+        books = Table(
+            "books",
+            m,
+            Column("id", Integer, primary_key=True),
+            Column("title", String(100)),
+            Column("author_id", Integer),
+        )
+        return authors, books
+
+    def test_delete_using_returning_from_using_table(self, two_table_fixture):
+        """DELETE USING with RETURNING column from USING table."""
+        authors, books = two_table_fixture
+
+        stmt = (
+            delete(authors)
+            .where(authors.c.id == books.c.author_id)
+            .returning(books.c.title)
+        )
+
+        self.assert_compile(
+            stmt,
+            "DELETE FROM authors USING books "
+            "WHERE authors.id = books.author_id "
+            "RETURNING books.title",
+        )
+
+    def test_delete_using_returning_mixed_tables(self, two_table_fixture):
+        """DELETE USING with RETURNING columns from both tables."""
+        authors, books = two_table_fixture
+
+        stmt = (
+            delete(authors)
+            .where(authors.c.id == books.c.author_id)
+            .returning(authors.c.name, books.c.title)
+        )
+
+        self.assert_compile(
+            stmt,
+            "DELETE FROM authors USING books "
+            "WHERE authors.id = books.author_id "
+            "RETURNING authors.name, books.title",
+        )
+
+    def test_delete_using_returning_only_using_table(self, two_table_fixture):
+        """DELETE USING with RETURNING only columns from USING table."""
+        authors, books = two_table_fixture
+
+        stmt = (
+            delete(authors)
+            .where(authors.c.id == books.c.author_id)
+            .returning(books.c.title, books.c.id)
+        )
+
+        self.assert_compile(
+            stmt,
+            "DELETE FROM authors USING books "
+            "WHERE authors.id = books.author_id "
+            "RETURNING books.title, books.id",
+        )
+
+    def test_delete_using_returning_with_expression(self, two_table_fixture):
+        """DELETE USING with RETURNING expression from USING table."""
+        authors, books = two_table_fixture
+
+        stmt = (
+            delete(authors)
+            .where(authors.c.id == books.c.author_id)
+            .returning(func.upper(books.c.title))
+        )
+
+        self.assert_compile(
+            stmt,
+            "DELETE FROM authors USING books "
+            "WHERE authors.id = books.author_id "
+            "RETURNING upper(books.title) AS upper_1",
+        )
+
+    def test_update_from_returning_from_from_table(self, two_table_fixture):
+        """UPDATE FROM with RETURNING column from FROM table."""
+        authors, books = two_table_fixture
+
+        stmt = (
+            update(authors)
+            .where(authors.c.id == books.c.author_id)
+            .values(name="updated")
+            .returning(books.c.title)
+        )
+
+        self.assert_compile(
+            stmt,
+            "UPDATE authors SET name=%(name)s::VARCHAR FROM books "
+            "WHERE authors.id = books.author_id "
+            "RETURNING books.title",
+        )
+
+    def test_update_from_returning_mixed_tables(self, two_table_fixture):
+        """UPDATE FROM with RETURNING columns from both tables."""
+        authors, books = two_table_fixture
+
+        stmt = (
+            update(authors)
+            .where(authors.c.id == books.c.author_id)
+            .values(name="updated")
+            .returning(authors.c.id, books.c.title)
+        )
+
+        self.assert_compile(
+            stmt,
+            "UPDATE authors SET name=%(name)s::VARCHAR FROM books "
+            "WHERE authors.id = books.author_id "
+            "RETURNING authors.id, books.title",
+        )
+
+
 class InsertReturningTest(fixtures.TablesTest, AssertsExecutionResults):
     __requires__ = ("insert_returning",)
     __sparse_driver_backend__ = True

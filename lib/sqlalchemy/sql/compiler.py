@@ -6129,7 +6129,7 @@ class SQLCompiler(Compiled):
                     "in-place multirow inserts." % self.dialect.name
                 )
             elif (
-                self.implicit_returning or insert_stmt._returning
+                insert_stmt._returning or self.implicit_returning
             ) and insert_stmt._sort_by_parameter_order:
                 raise exc.CompileError(
                     "RETURNING cannot be deterministically sorted when "
@@ -6173,7 +6173,7 @@ class SQLCompiler(Compiled):
         add_sentinel_cols = None
         implicit_sentinel = False
 
-        returning_cols = self.implicit_returning or insert_stmt._returning
+        returning_cols = insert_stmt._returning or self.implicit_returning
         if returning_cols:
             add_sentinel_cols = crud_params_struct.use_sentinel_columns
             if add_sentinel_cols is not None:
@@ -6586,11 +6586,11 @@ class SQLCompiler(Compiled):
             )
         )
 
-        if self.implicit_returning or update_stmt._returning:
+        if update_stmt._returning or self.implicit_returning:
             if self.returning_precedes_values:
                 text += " " + self.returning_clause(
                     update_stmt,
-                    self.implicit_returning or update_stmt._returning,
+                    update_stmt._returning or self.implicit_returning,
                     populate_result_map=toplevel,
                 )
 
@@ -6620,11 +6620,11 @@ class SQLCompiler(Compiled):
             text += " " + ulc
 
         if (
-            self.implicit_returning or update_stmt._returning
+            update_stmt._returning or self.implicit_returning
         ) and not self.returning_precedes_values:
             text += " " + self.returning_clause(
                 update_stmt,
-                self.implicit_returning or update_stmt._returning,
+                update_stmt._returning or self.implicit_returning,
                 populate_result_map=toplevel,
             )
 
@@ -6740,11 +6740,11 @@ class SQLCompiler(Compiled):
         text += table_text
 
         if (
-            self.implicit_returning or delete_stmt._returning
+            delete_stmt._returning or self.implicit_returning
         ) and self.returning_precedes_values:
             text += " " + self.returning_clause(
                 delete_stmt,
-                self.implicit_returning or delete_stmt._returning,
+                delete_stmt._returning or self.implicit_returning,
                 populate_result_map=toplevel,
             )
 
@@ -6774,11 +6774,11 @@ class SQLCompiler(Compiled):
             text += " " + dlc
 
         if (
-            self.implicit_returning or delete_stmt._returning
+            delete_stmt._returning or self.implicit_returning
         ) and not self.returning_precedes_values:
             text += " " + self.returning_clause(
                 delete_stmt,
-                self.implicit_returning or delete_stmt._returning,
+                delete_stmt._returning or self.implicit_returning,
                 populate_result_map=toplevel,
             )
 

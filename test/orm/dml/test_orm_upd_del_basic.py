@@ -1332,12 +1332,10 @@ class UpdateDeleteTest(fixtures.MappedTest):
         )
 
     @testing.requires.update_from_returning
-    # can't use evaluate because it can't match the col->col in the WHERE
     @testing.combinations("fetch", "auto", argnames="synchronize_session")
     def test_update_from_multi_returning(
         self, synchronize_session, addresses_data
     ):
-        """test #12327"""
         User = self.classes.User
         Address = self.classes.Address
 
@@ -1360,8 +1358,6 @@ class UpdateDeleteTest(fixtures.MappedTest):
             rows = sess.execute(stmt).all()
             eq_(set(rows), {(2, "ja1", 4), (4, "jan1", 4)})
 
-            # these are simple values, these are now evaluated even with
-            # the "fetch" strategy, new in 1.4, so there is no expiry
             eq_([john.age, jack.age, jill.age, jane.age], [25, 37, 29, 27])
 
         asserter.assert_(
